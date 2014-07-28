@@ -15,7 +15,15 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import shutil
-
+try:
+    import fiona
+except:
+    print "Python module fiona not found. Module is needed for import of unstructured grid attribute information from shapefile."
+try:
+    import shapely
+    from shapely.geometry import Polygon
+except:
+    print "Python module shapely not found. Module is used for evaluating cell centroids and minimum widths with unstructured grids."
 '''
 debugging functions
 '''
@@ -148,8 +156,51 @@ class SFRInput:
         # Check out any necessary arcpy licenses
         arcpy.CheckOutExtension("spatial")
 
-        # read in model information
-        self.DX, self.DY, self.NLAY, self.NROW, self.NCOL, i = disutil.read_meta_data(self.MFdis)
+        # read in grid type
+        try:
+            self.gridtype = inpars.findall('.//grid_type')[0].text
+        except:
+            self.gridtype = 'structured'
+
+        # read in grid information from DIS file (for structured grid)
+        if self.gridtype == 'structured':
+            self.DX, self.DY, self.NLAY, self.NROW, self.NCOL, i = disutil.read_meta_data(self.MFdis)
+
+        # attribute information for grid shapefile (default values are in the dictionary)
+        default_fieldnames = {'row_field': 'row', 'column_field': 'column', 'layer_field': 'layer',
+                              'top_elevation_field': None, 'bottom_elevation_field': None}
+        for attribute in default_fieldnames.iterkeys():
+            try:
+                setattr(self, attribute, inpars.findall('.//{}'.format(attribute))[0].text)
+            except:
+                setattr(self, attribute, default_fieldnames[attribute])
+                print "{} for grid shapefile not specified."
+                continue
+
+        try:
+            self.inactive_node_number = int(inpars.findall('.//{}'.format('inactive_node_number'))[0].text)
+        except:
+            print "{} for grid shapefile not specified."
+
+
+        # PFJ: The exception assignment to a string when no field is present in the input XML file is problematic because
+        # it causes the code to skip the checking analysis near line 1265, where 'cellnum' had previously been generated.
+        # I've added a boolean assigment here, and added a "self.node_attribute = 'cellnum' " assigment around line 1295.
+        # Of course, now I had to add a check for a newly generated cellnum field in the shapefile (following try/except)
+
+        # if no node attribute is specified, will default to "old way," where it looks for a "cellnum" column,
+        # tests if it has unique values, otherwise attempts to make one from row and column columns
+        try:
+            self.node_attribute = inpars.findall('.//node_attribute')[0].text
+        except:
+            self.node_attribute = False
+            # PFJ: now need to add a test to see if 'cellnum' has been added to self.MFgrid from a prior run with preproc
+            fields = arcpy.ListFields(self.MFgrid)
+            for field in fields:
+                if str(field.name) == "cellnum":
+                    self.node_attribute = 'cellnum'
+
+
         # make backup copy of MAT 1, if it exists
         MAT1backup = "{0}_backup".format(self.MAT1)
         if os.path.isfile(self.MAT1):
@@ -192,7 +243,8 @@ class SFRInput:
         try:
             self.distanceTol = float(inpars.findall('.//distanceTol')[0].text)
         except:
-            self.distanceTol = 10*np.min(self.DX[1:] - self.DX[:-1]) # get spacings, then take the minimum
+            # need a general method for determining minimum spacing
+            #self.distanceTol = 10*np.min(self.DX[1:] - self.DX[:-1]) # get spacings, then take the minimum
 
         try:
             self.profile_plot_interval = int(inpars.findall('.//profile_plot_interval')[0].text)
@@ -204,24 +256,6 @@ class SFRInput:
 
         except:
             self.elev_comp = False
-
-        # PFJ: The exception assignment to a string when no field is present in the input XML file is problematic because
-        # it causes the code to skip the checking analysis near line 1265, where 'cellnum' had previously been generated.
-        # I've added a boolean assigment here, and added a "self.node_attribute = 'cellnum' " assigment around line 1295.
-        # Of course, now I had to add a check for a newly generated cellnum field in the shapefile (following try/except)
-
-        # if no node attribute is specified, will default to "old way," where it looks for a "cellnum" column,
-        # tests if it has unique values, otherwise attempts to make one from row and column columns
-        try:
-            self.node_attribute = inpars.findall('.//node_attribute')[0].text
-        except:
-            self.node_attribute = False
-            # PFJ: now need to add a test to see if 'cellnum' has been added to self.MFgrid from a prior run with preproc
-            fields = arcpy.ListFields(self.MFgrid)
-            for field in fields:
-                if str(field.name) == "cellnum":
-                    self.node_attribute = 'cellnum'
-
 
         #read the Fcode-Fstring table and save it into a dictionary, Fstring
         descrips = arcpy.SearchCursor(self.FTab)
@@ -355,8 +389,11 @@ class LevelPathIDpropsAll:
             for FragID in self.levelpath_FragID[lpID]:
                 reachlength=FragIDdata.allFragIDs[FragID].lengthft
                 cellnum = FragIDdata.allFragIDs[FragID].cellnum
+
+                #again, need function here to determine cell dimensions
                 if reachlength < np.min(SFRdata.DX)*SFRdata.cutoff:
                     rmlist.append(FragID)
+
             #if any were too short remove from levelpath list of FragIDs
             newlist = [FragID for FragID in self.levelpath_FragID[lpID] if FragID not in rmlist]
             self.levelpath_FragID[lpID] = newlist
@@ -377,8 +414,8 @@ class CellProps(object):
     __slots__ = ['delx', 'dely', 'centroid','sidelength', 'row', 'column', 'fromCell']
     '''
     def __init__(self, delx, dely, centroid, sidelength, row, column):
-        self.delx = delx
-        self.dely = dely
+        self.delx = delx # apparently not used anywhere in the program!
+        self.dely = dely # apparently not used anywhere in the program!
         self.centroid = centroid
         self.sidelength = sidelength
         self.row = row
@@ -392,28 +429,58 @@ class CellPropsAll:
         self.centroids = dict()
 
     def populate_cells(self, SFRdata):
-        #use the CELLS shapefile to get the length of the cell sides, used
-        #to weed out short river reaches.  If the length in the cell is
-        #less than sidelength * the input 'cutoff', also get row and column
-        #for each cellnumber
+
+        if SFRdata.gridtype == 'structured':
+
+            #use the CELLS shapefile to get the length of the cell sides, used
+            #to weed out short river reaches.  If the length in the cell is
+            #less than sidelength * the input 'cutoff', also get row and column
+            #for each cellnumber
+            cells = arcpy.da.SearchCursor(SFRdata.CELLS, ['SHAPE@XY', 'delx', 'dely', SFRdata.node_attribute, 'row', 'column'])
+
+            try:
+                cells.fields
+            except RuntimeError:
+                print "At least one of the attribute names in {} is invalid. If grid is structured, the attributes " \
+                      "containing row and column information should be called 'row' and 'column' respectively.".format(SFRdata.MFgrid)
+            for cell in cells:
+                cellnum = int(cell[3])
+                dx = float(cell[1])
+                dy = float(cell[2])
+                centroid = cell[0]
+                minside = min([dx, dy])
+                row = int(cell[4])
+                column = int(cell[5])
+                self.allcells[cellnum] = CellProps(dx, dy, centroid, minside, row, column)
+
+        else:
+            print "reading in node attribute information from {}".format(SFRdata.CELLS)
+            print "only reading nodes in layer 1 and active nodes (node numbers != {}".format(SFRdata.inactive_node_number)
+            shpobj = fiona.open(SFRdata.CELLS)
+            dict = {}
+            knt = 0
+            length = len(shpobj)
+            for line in shpobj:
+                if line['properties'][SFRdata.layer_field] != 1:
+                    print '\r{:d}%'.format(100*knt/length),
+                    continue
+                elif line['properties'][SFRdata.node_attribute] != SFRdata.inactive_node_number:
+                    print '\r{:d}%'.format(100*knt/length),
+                    continue
+                else:
+                    cellnum = line['properties'][SFRdata.node_attribute]
+                    geometry = Polygon(line['geometry']['coordinates'][0]) # shapely Polygon of model cell
+                    centroid = np.ravel(geometry.centroid.xy) # centroid for cell Polygon
+                    minside = np.min(np.abs(np.diff(geometry.boundary.coords.xy))) # smallest side of bounding box for cell Polygon
+
+                    # do we need cell elevations?? and row/column info?
 
 
-        cells = arcpy.da.SearchCursor(SFRdata.CELLS, ['SHAPE@XY', 'delx', 'dely', SFRdata.node_attribute, 'row', 'column'])
 
-        try:
-            cells.fields
-        except RuntimeError:
-            print "At least one of the attribute names in {} is invalid. If grid is structured, the attributes " \
-                  "containing row and column information should be called 'row' and 'column' respectively.".format(SFRdata.MFgrid)
-        for cell in cells:
-            cellnum = int(cell[3])
-            dx = float(cell[1])
-            dy = float(cell[2])
-            centroid = cell[0]
-            minside = min([dx, dy])
-            row = int(cell[4])
-            column = int(cell[5])
-            self.allcells[cellnum] = CellProps(dx, dy, centroid, minside, row, column)
+
+
+
+                    print '\r{:d}%'.format(100*knt/length),
 
 
     def return_centroids(self):
@@ -1214,8 +1281,11 @@ class SFRSegmentsAll:
                                                             SFRdata.bedK)
                 #if its a structured grid, add row and column to seg_reaches
                 #the if for unstructured will be added in the future
-                self.allSegs[segment].seg_reaches[rch].row = CELLdata.allcells[localcell].row
-                self.allSegs[segment].seg_reaches[rch].column = CELLdata.allcells[localcell].column
+                if SFRdata.gridtype == 'structured':
+                    self.allSegs[segment].seg_reaches[rch].row = CELLdata.allcells[localcell].row
+                    self.allSegs[segment].seg_reaches[rch].column = CELLdata.allcells[localcell].column
+                else:
+                    self.allSegs[segment].seg_reaches[rch].nodenumber = CELLdata.allcells[localcell].nodenumber
 
 
 
@@ -1912,14 +1982,19 @@ class SFROperations:
 
         BotcorPDF = os.path.join(SFRdata.working_dir, "Corrected_Bottom_Elevations.pdf")  # PDF file showing original and corrected bottom elevations
         Layerinfo = os.path.join(SFRdata.working_dir, "SFR_layer_assignments.txt")  # text file documenting how many reaches are in each layer as assigned
-        DX, DY, NLAY, NROW, self.NCOL, i = disutil.read_meta_data(self.SFRdata.MFdis)
-        print "\nRead in model grid top elevations from {0:s}".format(SFRdata.MFdis)
-        topdata, i = disutil.read_nrow_ncol_vals(SFRdata.MFdis, SFRdata.NROW, SFRdata.NCOL, np.float, i)
-        print "Read in model grid bottom layer elevations from {0:s}".format(SFRdata.MFdis)
-        bots = np.zeros([SFRdata.NLAY, SFRdata.NROW, SFRdata.NCOL])
-        for clay in np.arange(SFRdata.NLAY):
-            print 'reading layer {0:d}'.format(clay+1)
-            bots[clay, :, :], i = disutil.read_nrow_ncol_vals(SFRdata.MFdis, SFRdata.NROW, SFRdata.NCOL, np.float, i)
+
+        if self.SFRdata.gridtype == 'structured':
+
+            DX, DY, NLAY, NROW, self.NCOL, i = disutil.read_meta_data(self.SFRdata.MFdis)
+            print "\nRead in model grid top elevations from {0:s}".format(SFRdata.MFdis)
+            topdata, i = disutil.read_nrow_ncol_vals(SFRdata.MFdis, SFRdata.NROW, SFRdata.NCOL, np.float, i)
+            print "Read in model grid bottom layer elevations from {0:s}".format(SFRdata.MFdis)
+            bots = np.zeros([SFRdata.NLAY, SFRdata.NROW, SFRdata.NCOL])
+            for clay in np.arange(SFRdata.NLAY):
+                print 'reading layer {0:d}'.format(clay+1)
+                bots[clay, :, :], i = disutil.read_nrow_ncol_vals(SFRdata.MFdis, SFRdata.NROW, SFRdata.NCOL, np.float, i)
+
+
         SFRinfo = np.genfromtxt(SFRdata.MAT1, delimiter=',', names=True, dtype=None)
 
         print '\nNow assiging stream cells to appropriate layers...'
@@ -2448,8 +2523,16 @@ class ElevsFromDEM:
         self.adjusted_elev = -9999
         self.verbose = False # prints interpolation information to screen for debugging/troubleshooting
 
-
+    '''
     def DEM_elevs_by_cellnum(self, SFRData, SFROperations):
+
+        note: this method as more or less been superceeded by DEM_elevs_by_FragID
+        (which is better, because instead of using an average elevation for the cell,
+        it samples DEM elevations at each linework vertex, so the resulting streambed elevation
+        will be closer to the true minimum.
+
+        also, this method has not been updated to work with usg; we may want to just remove it
+        -ATL
 
         # makes dictionary of DEM elevations by cellnum, using table for grid shapefile (column: cellnum)
         # i.e. DEM elevations are at the grid scale
@@ -2473,7 +2556,7 @@ class ElevsFromDEM:
         for row in MFgridtable:
             cellnum = row.getValue(SFROperations.joinnames[SFRData.node_attribute])
             self.DEM_elevs_by_cellnum[cellnum] = row.getValue(SFROperations.joinnames[self.MFgrid_elev_field.lower()])
-
+    '''
 
     def DEM_elevs_by_FragID(self, SFRdata, SFROperations):
 
