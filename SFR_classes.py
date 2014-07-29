@@ -413,11 +413,12 @@ class CellProps(object):
     '''
     __slots__ = ['delx', 'dely', 'centroid','sidelength', 'row', 'column', 'fromCell']
     '''
-    def __init__(self, delx, dely, centroid, sidelength, row, column):
-        self.delx = delx # apparently not used anywhere in the program!
-        self.dely = dely # apparently not used anywhere in the program!
+    def __init__(self, centroid, sidelength, cellnum, row, column):
+        #self.delx = delx # apparently not used anywhere in the program!
+        #self.dely = dely # apparently not used anywhere in the program!
         self.centroid = centroid
         self.sidelength = sidelength
+        self.cellnum = cellnum
         self.row = row
         self.column = column
         self.fromCell = []
@@ -451,7 +452,8 @@ class CellPropsAll:
                 minside = min([dx, dy])
                 row = int(cell[4])
                 column = int(cell[5])
-                self.allcells[cellnum] = CellProps(dx, dy, centroid, minside, row, column)
+                #cellnum = (row - 1)* SFRdata.NCOL + column
+                self.allcells[cellnum] = CellProps(centroid, minside, cellnum, row, column)
 
         else:
             print "reading in node attribute information from {}".format(SFRdata.CELLS)
@@ -472,13 +474,9 @@ class CellPropsAll:
                     geometry = Polygon(line['geometry']['coordinates'][0]) # shapely Polygon of model cell
                     centroid = np.ravel(geometry.centroid.xy) # centroid for cell Polygon
                     minside = np.min(np.abs(np.diff(geometry.boundary.coords.xy))) # smallest side of bounding box for cell Polygon
-
-                    # do we need cell elevations?? and row/column info?
-
-
-
-
-
+                    row = cellnum = line['properties'][SFRdata.row_field]
+                    column = cellnum = line['properties'][SFRdata.column_field]
+                    self.allcells[cellnum] = CellProps(centroid, minside, cellnum, row, column)
 
                     print '\r{:d}%'.format(100*knt/length),
 
@@ -958,8 +956,6 @@ class SFRSegmentsAll:
 
                 # now check for circular routing (typically happens when only one reach in a segment)subseg[labl]
                 # this repeats much of the logic of the preceding 10 or so lines
-                if outseg == 8689 or subseg[labl] == 8688:
-                    j=2
                 if subseg[labl] == outseg:
                     circular_condition = True
                     circular_test_counter = 0
@@ -1281,11 +1277,12 @@ class SFRSegmentsAll:
                                                             SFRdata.bedK)
                 #if its a structured grid, add row and column to seg_reaches
                 #the if for unstructured will be added in the future
-                if SFRdata.gridtype == 'structured':
-                    self.allSegs[segment].seg_reaches[rch].row = CELLdata.allcells[localcell].row
-                    self.allSegs[segment].seg_reaches[rch].column = CELLdata.allcells[localcell].column
-                else:
-                    self.allSegs[segment].seg_reaches[rch].nodenumber = CELLdata.allcells[localcell].nodenumber
+                # 7/29/2014: Right now it seems like it makes sense to carry cellnum (nodenumber) and row and column
+                # for both structured and usg. R&C is useful for identifying parent cells in Quadtree grids.
+                self.allSegs[segment].seg_reaches[rch].cellnum = CELLdata.allcells[localcell].cellnum
+                self.allSegs[segment].seg_reaches[rch].row = CELLdata.allcells[localcell].row
+                self.allSegs[segment].seg_reaches[rch].column = CELLdata.allcells[localcell].column
+
 
 
 
@@ -2760,8 +2757,9 @@ class SFRoutput:
         #open GWV files
         indat = self.indat
         mat1out = open(indat.MAT1, 'w')
-        mat1out.write('row,column,layer,stage,top_streambed,reach,segment,'
-                      'width_in_cell,length_in_cell,bed_K,bed_thickness,bed_slope,bed_roughness\n')
+        mat1out.write('{},row,column,layer,stage,top_streambed,reach,segment,'
+                      'width_in_cell,length_in_cell,bed_K,bed_thickness,bed_slope,bed_roughness\n'
+                      .format(self.indat.node_attribute))
 
         mat2out = open(indat.MAT2, 'w')
         mat2out.write('segment,icalc,outseg,iupseg,iprior,nstrpts,flow,runoff,'
@@ -2777,8 +2775,9 @@ class SFRoutput:
             # write to the mat1out file with information on each reach
             #
             for creach in reachlist:
-                printstring = (curr_reaches[creach].row,
-                curr_reaches[creach].column, 1)
+                printstring = (curr_reaches[creach].cellnum,
+                               curr_reaches[creach].row,
+                               curr_reaches[creach].column, 1)
                 mat1out.write(','.join(map(str, printstring)))
                 mixedlist = (curr_reaches[creach].elevreach,
                     curr_reaches[creach].elevreach - indat.stream_depth,
@@ -2862,10 +2861,15 @@ class SFRoutput:
                 bedK = '~SFRc~'
             else:
                 bedK = '{0:e}'.format(Mat1['bed_K'][i])
-            ofp.write('{0:d} {1:d} {2:d} {3:d} {4:d} {5:e} {6:e} {7:e} {8:e} {9:s}\n'.format(
-                Mat1['layer'][i],
-                Mat1['row'][i],
-                Mat1['column'][i],
+
+            # structured vs. usg input
+            if self.indat.gridtype == 'structured':
+                indexing = '{0:d} {1:d} {2:d}'.format(Mat1['layer'][i], Mat1['row'][i], Mat1['column'][i])
+            else:
+                indexing = '{0:d}'.format(Mat1['cellnum'][i])
+
+            ofp.write('{} {3:d} {4:d} {5:e} {6:e} {7:e} {8:e} {9:s}\n'.format(
+                indexing,
                 int(Mat1['segment'][i]),
                 int(Mat1['reach'][i]),
                 Mat1['length_in_cell'][i],
@@ -2902,6 +2906,9 @@ class SFRoutput:
         ofp.close()
 
     def build_SFR_shapefile(self, SFRSegsAll):
+        '''\
+        Note: this method is only compatible with structured grids. Use buildSFRshapefile2 for usg.
+        '''
         print 'building a shapefile of final SFR segments and reaches'
         Mat1 = np.genfromtxt(self.indat.MAT1, delimiter=',', names=True, dtype=None)
         #path = os.getcwd()
@@ -2968,8 +2975,13 @@ class SFRoutput:
         Mat1 = pd.read_csv(self.indat.MAT1)
 
         # calculate column of cellnums for Mat1; index by cellnum
-        Mat1[self.indat.node_attribute] = Mat1.apply(lambda x: (x['row'] - 1) * self.indat.NCOL + x['column'], axis=1).astype('int32')
-        #Mat1[self.indat.node_attribute] = Mat1[self.indat.node_attribute]
+        # Note: as of 7/29/14 node number is written to Mat 1,
+        # step below is for backward compatiablity with previously generated tables with structured grids.
+        try:
+            Mat1[self.indat.node_attribute]
+        except:
+            Mat1[self.indat.node_attribute] = Mat1.apply(lambda x: (x['row'] - 1) * self.indat.NCOL + x['column'], axis=1).astype('int32')
+
         Mat1 = Mat1.set_index([Mat1[self.indat.node_attribute], Mat1.index])
         Mat2 = pd.read_csv(self.indat.MAT2)
         Mat2.index = Mat2['segment']
@@ -2994,8 +3006,7 @@ class SFRoutput:
             with collection(self.indat.GISSHP, "w", "ESRI Shapefile", schema) as output:
                 for node in input:
                     cellnum = node['properties'][self.indat.node_attribute]
-                    if cellnum == 381937:
-                        j=2
+
                     # handle cells that were subsequently deleted after creation of input shapefile
                     try:
                         Mat1.ix[cellnum]
