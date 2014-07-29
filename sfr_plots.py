@@ -20,23 +20,28 @@ class plot_elevation_profiles:
     def __init__(self, SFRdata):
 
         self.SFRdata = SFRdata
-        self.elevs_by_cellnum = dict()
 
 
     def read_DIS(self):
-        DX, DY, NLAY, NROW, self.NCOL, i = disutil.read_meta_data(self.SFRdata.MFdis)
 
-        # get layer tops/bottoms
-        self.layer_elevs = np.zeros((NLAY+1, NROW, self.NCOL))
-        for c in range(NLAY + 1):
-            tmp, i = disutil.read_nrow_ncol_vals(self.SFRdata.MFdis, NROW, self.NCOL, 'float', i)
-            self.layer_elevs[c, :, :] = tmp
+        '''
+        This shouldn't be needed anymore, as model top elevation is carried through in FragID database
+        '''
+        self.elevs_by_cellnum = dict()
+        if self.SFRdata.gridtype == 'structured':
+            DX, DY, NLAY, NROW, self.NCOL, i = disutil.read_meta_data(self.SFRdata.MFdis)
 
-        # make dictionary of model top elevations by cellnum
-        for c in range(self.NCOL):
-            for r in range(NROW):
-                cellnum = r*self.NCOL + c + 1
-                self.elevs_by_cellnum[cellnum] = self.layer_elevs[0, r, c]
+            # get layer tops/bottoms
+            self.layer_elevs = np.zeros((NLAY+1, NROW, self.NCOL))
+            for c in range(NLAY + 1):
+                tmp, i = disutil.read_nrow_ncol_vals(self.SFRdata.MFdis, NROW, self.NCOL, 'float', i)
+                self.layer_elevs[c, :, :] = tmp
+
+            # make dictionary of model top elevations by cellnum
+            for c in range(self.NCOL):
+                for r in range(NROW):
+                    cellnum = r*self.NCOL + c + 1
+                    self.elevs_by_cellnum[cellnum] = self.layer_elevs[0, r, c]
 
 
     def get_comid_plotting_info(self, FragIDdata, COMIDdata, SFRdata, interval=False):
@@ -83,7 +88,7 @@ class plot_elevation_profiles:
                 if SFRdata.calculated_DEM_elevs:
                     elevs_fromDEM.append(mean_elev_fromDEM)
                 cellnum = FragIDdata.allFragIDs[fid].cellnum
-                L1top_top_elevs.append(self.elevs_by_cellnum[cellnum])
+                L1top_top_elevs.append(FragIDdata.allFragIDs[fid].model_top_elev)
 
             self.seg_dist_dict[seg] = distances
             self.seg_elev_fromNHD_dict[seg] = elevs_fromNHD
@@ -118,9 +123,9 @@ class plot_elevation_profiles:
                 dist += curr_reaches[creach].eff_length
                 distances.append(dist)
                 elev = curr_reaches[creach].elevreach
-                r, c = curr_reaches[creach].row, curr_reaches[creach].column
-                cellnum = (r - 1) * self.NCOL + c
-                L1top_top_elevs.append(self.elevs_by_cellnum[cellnum])
+                #r, c = curr_reaches[creach].row, curr_reaches[creach].column
+                #cellnum = (r - 1) * self.NCOL + c
+                L1top_top_elevs.append(curr_reaches[creach].model_top)
                 elevs.append(elev)
 
             self.seg_dist_dict[cseg] = distances

@@ -177,6 +177,23 @@ class SFRInput:
                 print "{} for grid shapefile not specified."
                 continue
 
+        # if top elevation wasn't supplied, make a dict of model top elevs by node number
+        if not self.top_elevation_field:
+            print "model top elevation attribute not supplied in {}. Reading tops from {}"\
+                .format(self.MFgrid, self.MFdis)
+
+            # get layer tops/bottoms
+            self.layer_elevs = np.zeros((self.NLAY+1, self.NROW, self.NCOL))
+            for c in range(self.NLAY + 1):
+                tmp, i = disutil.read_nrow_ncol_vals(self.SFRdata.MFdis, self.NROW, self.NCOL, 'float', i)
+                self.layer_elevs[c, :, :] = tmp
+
+            # make dictionary of model top elevations by cellnum
+            for c in range(self.NCOL):
+                for r in range(self.NROW):
+                    cellnum = r*self.NCOL + c + 1
+                    self.elevs_by_cellnum[cellnum] = self.layer_elevs[0, r, c]
+
         try:
             self.inactive_node_number = int(inpars.findall('.//{}'.format('inactive_node_number'))[0].text)
         except:
@@ -245,7 +262,8 @@ class SFRInput:
         except:
             # need a general method for determining minimum spacing
             #self.distanceTol = 10*np.min(self.DX[1:] - self.DX[:-1]) # get spacings, then take the minimum
-
+            print "Please provide a value for distanceTol in XML input file"
+            quit()
         try:
             self.profile_plot_interval = int(inpars.findall('.//profile_plot_interval')[0].text)
         except:
@@ -292,7 +310,7 @@ class FragIDprops(object):
     '''
     __slots__ = ['comid', 'startx', 'starty', 'endx', 'endy', 'FragID',
                  'maxsmoothelev', 'minsmoothelev', 'lengthft',
-                 'cellnum', 'elev', 'sidelength',
+                 'cellnum', 'model_top_elev, 'elev', 'sidelength',
                  'start_has_end', 'end_has_start', 'contour_elev', 'contour_elev_distance', 'segelevinfo',
                  'NHDPlus_elev_min', 'NHDPlus_elev_max', 'NHDPlus_elev_mean', 'NHDPlus_slope',
                  'interpolated_contour_elev_min', 'interpolated_contour_elev_max', 'interpolated_contour_elev_mean',
@@ -302,7 +320,7 @@ class FragIDprops(object):
     #  using __slots__ makes it required to declare properties of the object here in place
     #  and saves significant memory
     def __init__(self, comid, startx, starty, endx, endy, FragID,
-                 maxsmoothelev, minsmoothelev, lengthft, cellnum, contour_elev, contour_elev_distance,
+                 maxsmoothelev, minsmoothelev, lengthft, cellnum, model_top_elev, contour_elev, contour_elev_distance,
                  NHDPlus_elev_min, NHDPlus_elev_max, NHDPlus_elev_mean, NHDPlus_slope,
                  interpolated_contour_elev_min, interpolated_contour_elev_max, interpolated_contour_elev_mean,
                  interpolated_contour_slope, DEM_elev_min, DEM_elev_max, DEM_elev_mean, DEM_slope,
@@ -317,6 +335,7 @@ class FragIDprops(object):
         self.minsmoothelev = minsmoothelev
         self.lengthft = lengthft
         self.cellnum = cellnum
+        self.model_top_elev = model_top_elev
         self.contour_elev = contour_elev
         self.contour_elev_distance = contour_elev_distance
         self.NHDPlus_elev_min = NHDPlus_elev_min
@@ -413,7 +432,7 @@ class CellProps(object):
     '''
     __slots__ = ['delx', 'dely', 'centroid','sidelength', 'row', 'column', 'fromCell']
     '''
-    def __init__(self, centroid, sidelength, cellnum, row, column):
+    def __init__(self, centroid, sidelength, cellnum, row, column, model_top):
         #self.delx = delx # apparently not used anywhere in the program!
         #self.dely = dely # apparently not used anywhere in the program!
         self.centroid = centroid
@@ -421,6 +440,7 @@ class CellProps(object):
         self.cellnum = cellnum
         self.row = row
         self.column = column
+        self.model_top = model_top
         self.fromCell = []
 
 
@@ -452,8 +472,9 @@ class CellPropsAll:
                 minside = min([dx, dy])
                 row = int(cell[4])
                 column = int(cell[5])
+                model_top_elev = SFRdata.elevs_by_cellnum[cellnum].model_top
                 #cellnum = (row - 1)* SFRdata.NCOL + column
-                self.allcells[cellnum] = CellProps(centroid, minside, cellnum, row, column)
+                self.allcells[cellnum] = CellProps(centroid, minside, cellnum, row, column, model_top_elev)
 
         else:
             print "reading in node attribute information from {}".format(SFRdata.CELLS)
@@ -474,9 +495,10 @@ class CellPropsAll:
                     geometry = Polygon(line['geometry']['coordinates'][0]) # shapely Polygon of model cell
                     centroid = np.ravel(geometry.centroid.xy) # centroid for cell Polygon
                     minside = np.min(np.abs(np.diff(geometry.boundary.coords.xy))) # smallest side of bounding box for cell Polygon
-                    row = cellnum = line['properties'][SFRdata.row_field]
-                    column = cellnum = line['properties'][SFRdata.column_field]
-                    self.allcells[cellnum] = CellProps(centroid, minside, cellnum, row, column)
+                    row = line['properties'][SFRdata.row_field]
+                    column = line['properties'][SFRdata.column_field]
+                    model_top_elev = line['properties'][SFRdata.top_elevation_field]
+                    self.allcells[cellnum] = CellProps(centroid, minside, cellnum, row, column, model_top_elev)
 
                     print '\r{:d}%'.format(100*knt/length),
 
@@ -612,7 +634,7 @@ class COMIDPropsAll:
                     tocell = FragIDdata.allFragIDs[cfidp1].cellnum
                     if not tocell == fmcell:
                         if fmcell not in CELLdata.allcells:
-                            CELLdata.allcells[frmcell].fromCell = tocell
+                            CELLdata.allcells[fmcell].fromCell = tocell
                         else:
                             CELLdata.allcells[fmcell].fromCell.append(tocell)
                 lastcell = FragIDdata.allFragIDs[ordfragid[-1]].cellnum
@@ -738,26 +760,36 @@ class FragIDPropsAll:
         """
         read in the main COMID-related properties from the intersect file
         """
-        segments = arcpy.SearchCursor(SFRdata.intersect)
+        reaches = arcpy.SearchCursor(SFRdata.intersect)
 
-        for seg in segments:
-            FragID = int(seg.FragID)
+        for reach in reaches:
+
+            # if top elevation attribute is supplied with grid shapefile, don't need to read DIS
+            # this field is carried through from the join of the grid with linework
+            if SFRdata.top_elevation_field:
+                model_top = reach[SFRdata.top_elevation_field]
+            else:
+                # otherwise get the elevation that was read in from the DIS file
+                model_top = self.elevs_by_cellnum[reach[SFRdata.node_attribute]]
+
+            FragID = int(reach.FragID)
             self.allFragIDs[FragID] = FragIDprops(
-                int(seg.COMID),
-                float(seg.X_start),
-                float(seg.Y_start),
-                float(seg.X_end),
-                float(seg.Y_end),
-                int(seg.FragID),
-                float(seg.MAXELEVSMO)*SFRdata.z_conversion,  # UNIT CONVERSION
-                float(seg.MINELEVSMO)*SFRdata.z_conversion,  # UNIT CONVERSION
-                float(seg.LengthFt),
-                seg.cellnum,
+                int(reach.COMID),
+                float(reach.X_start),
+                float(reach.Y_start),
+                float(reach.X_end),
+                float(reach.Y_end),
+                int(reach.FragID),
+                float(reach.MAXELEVSMO)*SFRdata.z_conversion,  # UNIT CONVERSION
+                float(reach.MINELEVSMO)*SFRdata.z_conversion,  # UNIT CONVERSION
+                float(reach.LengthFt),
+                reach[SFRdata.node_attribute],
+                model_top,
                 list(), list(), None, None, None, None, None, None, None, None,
                 None, None, None, None, None, None, None, None)
 
 
-            self.allcomids.append(int(seg.COMID))
+            self.allcomids.append(int(reach.COMID))
         self.allcomids = list(set(self.allcomids))
         self.return_unique_cells()
         self.return_cellnum_FragID()
@@ -1282,7 +1314,7 @@ class SFRSegmentsAll:
                 self.allSegs[segment].seg_reaches[rch].cellnum = CELLdata.allcells[localcell].cellnum
                 self.allSegs[segment].seg_reaches[rch].row = CELLdata.allcells[localcell].row
                 self.allSegs[segment].seg_reaches[rch].column = CELLdata.allcells[localcell].column
-
+                self.allSegs[segment].seg_reaches[rch].model_top = CELLdata.allcells[localcell].model_top
 
 
 
@@ -1467,7 +1499,7 @@ class SFRpreproc:
  #       arcpy.AddField_management(indat.CELLS, "CELLNUM", "LONG")
  #       arcpy.CalculateField_management(indat.CELLS, "CELLNUM", "!node!", "PYTHON")
 
-        print "Dissolving river cells on cell number to isolate unique cells...\n"
+        print "Dissolving river cells on cell number to isolate unique cells...(may also take several min. for large grids)\n"
         #SFRoperations.getfield(indat.CELLS, "cellnum", "cellnum")
         SFRoperations.getfield(indat.CELLS, indat.node_attribute, indat.node_attribute)
         arcpy.Dissolve_management(indat.CELLS, indat.CELLS_DISS, SFRoperations.joinnames[indat.node_attribute])
@@ -1584,6 +1616,7 @@ class SFRpreproc:
 
         self.ofp.write('\n' + '#' * 25 + '\nEnd Time: %s\n' % end_time + '#' * 25)
         self.ofp.close()
+
 
     def intersect_contours(self, SFRdata):
 

@@ -23,6 +23,12 @@ Notes on SFR input:
     <!-- rfact:
     a factor within which start(x,y) and end(x,y) can be found -->
     <rfact>0.95</rfact>
+	<!-- distanceTol (required):
+    Distance tolerance for routing between segments. A recommended setting is a few multiples of the cell spacing. If the next
+    downstream segment is more than this distance away, the segment is treated as an outlet (outseg = 0).
+    This helps prevent unwanted routing for segments that aren't outlets in NHD, but are outlets in the model.
+    A few multiples of the grid spacing should work. -->
+    <distanceTol>5000</distanceTol>
 	<!-- preproc:
     a factor within which start(x,y) and end(x,y) can be found -->
     <preproc>True</preproc>

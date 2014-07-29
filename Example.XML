@@ -21,9 +21,6 @@ Notes on SFR input:
     multiplier to convert DEM units to ft. (default is 1.0) -->
     <DEM_z_conversion>1.0</DEM_z_conversion>
     <!-- rfact:
-    a factor within which start(x,y) and end(x,y) can be found -->
-    <rfact>0.95</rfact>
-	<!-- preproc:
     ATL 5/30/2014 (Howard feel free to make corrections if any of this is incorrect):
     A distance to look between start(x) and end(x), and start(y) and end(y) of consecutive reaches.
     If both the x coordinates are within rfact of each other, AND the y coordinates are within rfact of each other, the two
@@ -33,12 +30,16 @@ Notes on SFR input:
     be <= reach_cutoff. rfact should therefore be roughly equal to reach_cutoff, for cases in which the missing
     fragment is a straight line between the start/end points of the two adjacent fragments, which is close to parallel with
     one of the coordinate axis.-->
-    <distanceTol>None</distanceTol>
-    <!-- distanceTol:
-    ATL 5/30/2014 (Howard feel free to make corrections if any of this is incorrect):
+    <rfact>0.95</rfact>
+	<!-- distanceTol:
     Distance tolerance for routing between segments. A recommended setting is a few multiples of the cell spacing. If the next
     downstream segment is more than this distance away, the segment is treated as an outlet (outseg = 0).
-    This helps prevent unwanted routing for segments that aren't outlets in NHD, but are outlets in the model. -->
+    This helps prevent unwanted routing for segments that aren't outlets in NHD, but are outlets in the model.
+    A few multiples of the grid spacing should work. -->
+    <distanceTol>None</distanceTol>
+    <!-- preproc:
+    Whether or not to run preprocessing routine. Needed if any of the files under the InputFiles_without_preprocessing
+    havent been generated, or need to be updated. -->
     <preproc>True</preproc>
     <!-- tpl:
     a flag for writing out a PEST tpl file instead of SFR package file -->
