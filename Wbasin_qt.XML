@@ -52,9 +52,17 @@ Notes on SFR input:
     a multi-layer text array (nrows * ncols * nlayers). A new DIS file must be remade from this array. -->
 	<Lowerbot>False</Lowerbot>
 </GlobalSettings>
+<Locations>
+    <!-- GIS_utils_path:
+    path to GIS_utils files for working with shapefiles
+    (as of 7/31/2014 this is only needed by SFRpreproc.clip_and_join_Gridgen and
+    plot_streamflows.join_SFR_out2streams methods in sfr_plots.py-->
+    <GIS_utils_path>'D:/ATLData/Documents/GitHub/GIS_utils/'</GIS_utils_path>
+
+</Locations>
 <Model_grid_information>
     <!-- MFgrid: polygon shapefile export of grid from Groundwater Vistas -->
-    <MFgrid>D:\ATLData\Wbasin\output_shapefiles\grid02qtg.shp</MFgrid>
+    <MFgrid>D:\ATLData\Wbasin\output_shapefiles\grid02qtg_Layer1.shp</MFgrid>
     <!-- grid_type:
     'structured' for traditional MODFLOW grid (default) or 'usg' for unstructured grid -->
     <grid_type>usg</grid_type>
@@ -71,21 +79,20 @@ Notes on SFR input:
     <layer_field>layer</layer_field>
     <!-- top_elevation_field (optional for structured; DIS file can be used instead):
     name of attribute of grid shapefile that contains node top elevations -->
-    <top_elevation_field>row</top_elevation_field>
+    <top_elevation_field>top</top_elevation_field>
     <!-- bottom_elevation_field (optional for structured):
     name of attribute of grid shapefile that contains node bottom elevations -->
-    <bottom_elevation_field>col</bottom_elevation_field>
+    <bottom_elevation_field>bottom</bottom_elevation_field>
     <!-- inactive_node_number:
     value for designating inactive cells
     optional; but will speed up reading of cell attribute information from the grid shapefile -->
     <inactive_node_number>-1</inactive_node_number>
-
 </Model_grid_information>
 <InputFiles>
     <!-- MFdomain: outline of model grid -->
     <MFdomain>D:\ATLData\Wbasin\shps\active_model_extent.shp</MFdomain>
     <!-- MFdis: discretization file -->
-    <MFdis>D:\ATLData\Wbasin\SS16_SS18\ss18.dis</MFdis>
+    <MFdis>None</MFdis>
     <!-- DEM: DEM for model area, doesn't need to be clipped
     Note: the raster cannot be contained in a geodatabase-->
     <DEM>D:\ATLData\Wbasin\DEM\wapr_ned_full</DEM>
@@ -96,6 +103,10 @@ Notes on SFR input:
     <!-- Flowlines_unclipped: 
         original flowlines covering model area (not clipped to grid) -->
     <Flowlines_unclipped>D:\ATLData\Wbasin\shps\merged_NHDFlowline_smpl.shp</Flowlines_unclipped>
+    <!-- intersected_streams:
+    streams intersected with the model grid using the program Gridgen
+    (the linework is already in fragments within each interested grid cell, with the cell node number assigned) -->
+    <intersected_streams>D:\ATLData\Wbasin\output_intersection\grid02qtg_streams_intersect.shp</intersected_streams>
     <!-- arcpy_path: for calling arcpy scripts externally using os.system
     note: this variable currently isn't used-->
     <arcpy_path>C:\python27\ArcGIS10.1\python</arcpy_path>      
@@ -105,16 +116,21 @@ Notes on SFR input:
     <FTab>D:\ATLData\Wbasin\shps\merged_NHDFcode.dbf</FTab>
     <!-- ELEVcontours: from National Map -->
     <ELEVcontours>None</ELEVcontours>
-
 </InputFiles>
 
-<IntermediateFiles>
-    <!-- Flowlines: clipped to active area -->
+<!-- InputFiles_without_preprocessing:
+In addition to the files above, these files (created during the preprocessing routine) are needed for input
+ if the program is run without the Preprocessing routine (preproc set to False)-->
+<InputFiles_without_preprocessing>
+    <!-- Flowlines: clipped to active area.  -->
     <Flowlines>flowlines_clipped.shp</Flowlines>
-    <!-- ELEV: clipped to active area -->
-    <ELEV>river_w_elevations.shp</ELEV>
     <!-- intersect:  flowlines intersected with the grid-->
     <intersect>river_explode.shp</intersect>
+</InputFiles_without_preprocessing>
+
+<IntermediateFiles>
+    <!-- ELEV: clipped to active area -->
+    <ELEV>river_w_elevations.shp</ELEV>
     <!-- intersect_points: end vertices of "intersect" fragments as points-->
     <intersect_points>river_explode_points.shp</intersect_points>
     <!-- rivers_table:  -->

@@ -92,6 +92,7 @@ class SFRInput:
         self.PlusflowVAA = inpars.findall('.//PlusflowVAA')[0].text
         self.Elevslope = inpars.findall('.//Elevslope')[0].text
         self.Flowlines_unclipped = inpars.findall('.//Flowlines_unclipped')[0].text
+        self.intersected_streams = inpars.findall('.//intersected_streams')[0].text
         self.arcpy_path = inpars.findall('.//arcpy_path')[0].text
         self.FLOW = inpars.findall('.//FLOW')[0].text
         self.FTab = inpars.findall('.//FTab')[0].text
@@ -274,6 +275,12 @@ class SFRInput:
 
         except:
             self.elev_comp = False
+
+        # path to GIS_utils repository (for working with shapefiles and geometric operations)
+        try:
+            self.GIS_utils_path = inpars.findall('.//GIS_utils_path')[0].text
+        except:
+            self.GIS_utils_path = None
 
         #read the Fcode-Fstring table and save it into a dictionary, Fstring
         descrips = arcpy.SearchCursor(self.FTab)
@@ -767,10 +774,10 @@ class FragIDPropsAll:
             # if top elevation attribute is supplied with grid shapefile, don't need to read DIS
             # this field is carried through from the join of the grid with linework
             if SFRdata.top_elevation_field:
-                model_top = reach[SFRdata.top_elevation_field]
+                model_top = reach.getValue(SFRdata.top_elevation_field)
             else:
                 # otherwise get the elevation that was read in from the DIS file
-                model_top = self.elevs_by_cellnum[reach[SFRdata.node_attribute]]
+                model_top = self.elevs_by_cellnum[reach.getValue(SFRdata.node_attribute)]
 
             FragID = int(reach.FragID)
             self.allFragIDs[FragID] = FragIDprops(
@@ -783,7 +790,7 @@ class FragIDPropsAll:
                 float(reach.MAXELEVSMO)*SFRdata.z_conversion,  # UNIT CONVERSION
                 float(reach.MINELEVSMO)*SFRdata.z_conversion,  # UNIT CONVERSION
                 float(reach.LengthFt),
-                reach[SFRdata.node_attribute],
+                reach.getValue(SFRdata.node_attribute),
                 model_top,
                 list(), list(), None, None, None, None, None, None, None, None,
                 None, None, None, None, None, None, None, None)
@@ -1490,24 +1497,47 @@ class SFRpreproc:
         self.ofp.write("...removed %s segments with ThinnerCod = -9\n" %(tcount))
         print ("Performing spatial join (one-to-many) of NHD flowlines to model grid to get river cells..." +
                "(this step may take several minutes or more)\n")
-        arcpy.SpatialJoin_analysis(indat.MFgrid, "Flowlines",
+        '''
+        for some reason, for Wbasin quadtree, the grid shapefile produced by Gridgen was not properly formatted
+        as polygons, even though the WKT geometries looked the same as the Wbasin base grid. Unlike the Wbasin base grid,
+        the spatial join below with the qt grid produced by Gridgen resulted in triangular indat.CELLS, which were missing
+        their bottom left corner. Running arcpy.FeatureToPolygon_management() fixes this, apparently by enforcing the correct
+        polygon geometries
+        '''
+        # all this below just to prepare the grid...
+        arcpy.FeatureToPolygon_management(indat.MFgrid, "MFgrid_polys.shp") # enforce proper polygon formatting
+        #but this command doesn't preserve attribute values for some reason!! (for Wbasin, they all ended up as 0)
+        # we will get the attributes back later with another spatial join
+        fields = [f.name for f in arcpy.ListFields("MFgrid_polys.shp") if f.name not in 'FID Shape' and
+                                                                      f.name != indat.node_attribute]
+        arcpy.DeleteField_management("MFgrid_polys.shp", fields) # clean up the empty fields with zeros
+        # join formatted polygons to original grid again to get the node number back (UGLY!!, and inefficient)
+        arcpy.SpatialJoin_analysis("MFgrid_polys.shp", indat.MFgrid, 'temp.shp', "JOIN_ONE_TO_ONE", "KEEP_COMMON")
+        arcpy.CalculateField_management('temp.shp', indat.node_attribute, "!{}!".format(indat.node_attribute[0:8] + '_1'), 'PYTHON')
+        arcpy.DeleteField_management('temp.shp', "!{}!".format(indat.node_attribute[0:8] + '_1'))
+
+        # now join flowlines to grid to get cells that intersect
+        arcpy.SpatialJoin_analysis('temp.shp', "Flowlines",
                                    indat.CELLS,
                                    "JOIN_ONE_TO_MANY",
                                    "KEEP_COMMON")
 
-        # add in cellnum field for backwards compatibility
- #       arcpy.AddField_management(indat.CELLS, "CELLNUM", "LONG")
- #       arcpy.CalculateField_management(indat.CELLS, "CELLNUM", "!node!", "PYTHON")
-
         print "Dissolving river cells on cell number to isolate unique cells...(may also take several min. for large grids)\n"
-        #SFRoperations.getfield(indat.CELLS, "cellnum", "cellnum")
         SFRoperations.getfield(indat.CELLS, indat.node_attribute, indat.node_attribute)
-        arcpy.Dissolve_management(indat.CELLS, indat.CELLS_DISS, SFRoperations.joinnames[indat.node_attribute])
+
+        arcpy.Dissolve_management(indat.CELLS, "temp.shp", SFRoperations.joinnames[indat.node_attribute])
+        # only the dissolved field was retained. Other fields could have been retained, but their names would have been
+        # prepended with a statistic such as "MEAN". Want to keep the same names for the sake of other parts of the program.
+        # and because of the above problem with FeatureToPolygon_...
+        # join the dissolved cells back to the grid to pickup its attribute information again (CLUNKY!)
+        arcpy.SpatialJoin_analysis("temp.shp", indat.MFgrid, indat.CELLS_DISS, "JOIN_ONE_TO_ONE", "KEEP_COMMON")
+        # get rid of duplicate node_attribute field
+        arcpy.DeleteField_management(indat.CELLS_DISS, "{}_1".format(indat.node_attribute))
 
         print "Exploding NHD segments to grid cells using Intersect and Multipart to Singlepart..."
         arcpy.Intersect_analysis([indat.CELLS_DISS, "Flowlines"], os.path.join(indat.working_dir, "tmp_intersect.shp"))
         arcpy.MultipartToSinglepart_management(os.path.join(indat.working_dir, "tmp_intersect.shp"), indat.intersect)
-        print "\n"
+
         print "Adding in stream geometry"
         #set up list and dictionary for fields, types, and associated commands
         fields = ('X_start', 'Y_start', 'X_end', 'Y_end', 'LengthFt')
@@ -1540,9 +1570,11 @@ class SFRpreproc:
         count = 0
         for reaches in table:
             if reaches.getValue(SFRoperations.joinnames["Length"]) <= indat.reach_cutoff:
+                '''
                 print "segment: %d, cell: %s, length: %s" % (reaches.getValue(SFRoperations.joinnames["comid"]),
                                                             reaches.getValue(SFRoperations.joinnames[indat.node_attribute]),
                                                             reaches.getValue(SFRoperations.joinnames["Length"]))
+                '''
                 self.ofp.write("segment: %d, cell: %s, length: %s\n"
                           %(reaches.getValue(SFRoperations.joinnames["comid"]),
                             reaches.getValue(SFRoperations.joinnames[indat.node_attribute]),
@@ -1584,7 +1616,7 @@ class SFRpreproc:
         count = 0
         for cells in table:
             if cells.getValue(SFRoperations.joinnames[indat.node_attribute]) in nodes2delete:
-                print "%d" % (cells.getValue(SFRoperations.joinnames[indat.node_attribute]))
+                #print "%d" % (cells.getValue(SFRoperations.joinnames[indat.node_attribute]))
                 self.ofp.write('%d\n' % (cells.getValue(SFRoperations.joinnames[indat.node_attribute])))
                 table.deleteRow(cells)
                 count += 1
@@ -1598,7 +1630,7 @@ class SFRpreproc:
         count = 0
         for reaches in table:
             if reaches.getValue(SFRoperations.joinnames[indat.node_attribute]) in nodes2delete:
-                print "%d" % (reaches.getValue(SFRoperations.joinnames[indat.node_attribute]))
+                #print "%d" % (reaches.getValue(SFRoperations.joinnames[indat.node_attribute]))
                 self.ofp.write('%d\n' % (reaches.getValue(SFRoperations.joinnames[indat.node_attribute])))
                 table.deleteRow(reaches)
                 count += 1
@@ -1617,6 +1649,117 @@ class SFRpreproc:
         self.ofp.write('\n' + '#' * 25 + '\nEnd Time: %s\n' % end_time + '#' * 25)
         self.ofp.close()
 
+
+    def clip_and_join_Gridgen(self, SFRoperations):
+
+        try:
+            import sys
+            sys.path.append('D:/ATLData/Documents/GitHub/GIS_utils/') #path to GIS_utils repo
+            import GISio
+
+        except:
+            'Could not import GIS_utils, which is required for this method.'
+            quit()
+
+        indat = self.indata
+
+        # keep this arcpy stuff for now
+        print "Clip original NHD flowlines to model domain..."
+        # this creates a new file so original dataset untouched
+        arcpy.Clip_analysis(indat.Flowlines_unclipped,
+                            indat.MFdomain,
+                            indat.Flowlines)
+
+        print "Make a lines only version of the model domain outline..."
+        arcpy.FeatureToLine_management(indat.MFdomain, indat.MFdomain[:-4] + '_outline.shp')
+
+        # read in intersected flowlines from Gridgen, and NHD tables
+        df = GISio.shp2df(indat.intersected_streams, geometry=True)
+        elevs = GISio.shp2df(indat.Elevslope, index='COMID')
+        pfvaa = GISio.shp2df(indat.PlusflowVAA, index='COMID')
+
+        # check for MultiLineStrings and drop them (these are features that were fragmented by the boundaries)
+        mls = [i for i in df.index if 'multi' in df.ix[i]['geometry'].type.lower()]
+        mlsdf = df.ix[mls]
+        self.ofp.write('Deleted MultiLineStrings associated with these COMIDs:\n'
+                       '(most likely are features that were fragmented by the grid boundaries)\n')
+        self.ofp.write(mls.to_string(columns=['COMID'])) # right these dataframe column to log file
+        df = df.drop(mls, axis=0)
+
+        # delete all unneeded fields
+        fields2keep = ["comid",
+                     "divergence",
+                     "lengthkm",
+                     "thinnercod",
+                     "maxelevsmo",
+                     "minelevsmo",
+                     "hydroseq",
+                     "uphydroseq",
+                     "dnhydroseq",
+                     "reachcode",
+                     "streamorde",
+                     "arbolatesu",
+                     "fcode",
+                     "levelpathI",
+                     "uplevelpat",
+                     "dnlevelpat"]
+        fields2keep = [x.lower() for x in fields2keep]
+        fields2delete = [f.lower() for f in pfvaa.columns + elevs.columns if f.lower() != 'oid' and
+                                                                             f.lower() not in fields2keep]
+        self.ofp.write('Joining {0:s} with {1:s}: fields kept:\n'.format(indat.Elevslope, indat.intersected_streams))
+        self.ofp.write('%s\n' % ('\n'.join(fields2keep)))
+        self.ofp.write('deleted:\n')
+        self.ofp.write('%s\n' % ('\n'.join(fields2delete)))
+
+        print "joining PlusflowVAA and Elevslope tables to NHD Flowlines..."
+        lsuffix = 'fl'
+        df = df.join(elevs, on='COMID', lsuffix='', rsuffix='1')
+        df = df.join(pfvaa, on='COMID', lsuffix='', rsuffix='1')
+
+        self.ofp.write('\n' + 25*'#' + '\nRemoving COMIDs with no elevation information, and with ThinnerCod = -9..\n')
+        print "Removing COMIDs with no elevation information, and with ThinnerCod = -9..."
+
+        # drop inactive cells
+        df = df[df.nodenumber != -1.0]
+
+        # drop reaches with no elevation information
+        no_elev = df[(df.MAXELEVSMO == 0) | (df.MAXELEVSMO == -9998)]
+        self.ofp.write(no_elev.to_string(columns=['COMID', 'MAXELEVSMO'])) # right these dataframe column to log file
+        df = df.drop(no_elev.index, axis=0)
+        print "removed %d with no elevation data".format(len(no_elev))
+
+        # drop reaches with ThinnerCod = -9
+        tc9 = df[df.ThinnerCod == -9]
+        self.ofp.write(tc9.to_string(columns=['COMID', 'ThinnerCod'])) # right these dataframe column to log file
+        df = df.drop(tc9.index, axis=0)
+        print "removed %d with ThinnerCod=-9".format(len(tc9))
+
+        print "Adding in start,end x,y and lengths..."
+        df['X_start'] = [g.xy[0][0] for g in df.geometry]
+        df['X_end'] = [g.xy[0][-1] for g in df.geometry]
+        df['Y_start'] = [g.xy[1][0] for g in df.geometry]
+        df['Y_end'] = [g.xy[1][-1] for g in df.geometry]
+        df['LengthFt'] = [g.length for g in df.geometry]
+
+        print "\nRemoving stream fragments with lengths less than or equal to %s..." % indat.reach_cutoff
+        cutoff = df[df.LengthFt <= 1.0]
+        self.ofp.write(cutoff.to_string(columns=['COMID', indat.node_attribute, 'LengthFt']))
+        df = df.drop(cutoff.index, axis=0)
+        print "removed %d fragments".format(len(cutoff))
+
+        print "creating Fragment IDs (proto-reaches)"
+        df['FragID'] = range(len(df))
+
+        # write output to shapefile
+        GISio.df2shp(df, indat.intersect, prj=indat.Flowlines[:-4]+'.prj')
+
+        print "Done with pre-processing, ready to run intersect!"
+        self.ofp.write('\n' + '#' * 25 + '\nDone with pre-processing, ready to run intersect!')
+        ts = time.time()
+        end_time = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
+
+        self.ofp.write('\n' + '#' * 25 + '\nEnd Time: %s\n' % end_time + '#' * 25)
+        self.ofp.close()
 
     def intersect_contours(self, SFRdata):
 
