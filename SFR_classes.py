@@ -3305,7 +3305,11 @@ class SFRoutput:
                     model_top = CELLProps.allcells[cellnum].model_top
                 except:
                     model_top = 99.99
-                #bed_K	bed_roughness	bed_slope	bed_thickness	column	layer	length_in_cell	reach	row	segment	stage	top_streambed	width_in_cell
+
+                if from_shp:
+                    geom = mapping(shape(node['geometry']))
+                else:
+                    geom = CellProps[cellnum].geometry
 
                 # shapefiles are incompatible with int64.
                 # but apparently they are compatible with float64 ARGH!
@@ -3319,15 +3323,16 @@ class SFRoutput:
                                              'upseg': np.int32(Mat2upsegs[segment]),
                                              'sb_elev': Mat1.ix[(cellnum, uniquereach), 'top_streambed'],
                                              'modeltop': model_top,
-                                             'bed_K': Mat1.ix[(cellnum, uniquereach), 'bed_K'],\
                                              'bed_K': Mat1.ix[(cellnum, uniquereach), 'bed_K'],
-},
-
-
-                              'geometry': mapping(shape(node['geometry']))})
+                                             'bed_roughness': Mat1.ix[(cellnum, uniquereach), 'bed_roughness'],
+                                             'bed_slope': Mat1.ix[(cellnum, uniquereach), 'bed_slope'],
+                                             'bed_thickness': Mat1.ix[(cellnum, uniquereach), 'bed_thickness'],
+                                             'width_in_cell': Mat1.ix[(cellnum, uniquereach), 'width_in_cell'],
+                                             'length_in_cell': Mat1.ix[(cellnum, uniquereach), 'length_in_cell']},
+                              'geometry': geom})
 
         # copy over prj file
-        shutil.copyfile("{}.prj".format(self.indat.CELLS_DISS[:-4]), "{}.prj".format(self.indat.GISSHP[:-4]))
+        shutil.copyfile("{}.prj".format(self.intersect[:-4]), "{}.prj".format(self.indat.GISSHP[:-4]))
 
 
 
