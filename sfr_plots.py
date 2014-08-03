@@ -8,11 +8,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from collections import defaultdict
 
 import sys
-sys.path.append('../../GIS_utils')
-try:
-    import GISops
-except:
-    print 'GIS_utils.GISops not found!'
+
 
 
 class plot_elevation_profiles:
@@ -366,4 +362,9 @@ class plot_streamflows:
             SFR_arcpy.general_join(outfile, "streams", self.node_num_attribute, "temp.dbf", self.node_num_attribute, keep_common=True)
 
         else:
+            try:
+                sys.path.append('D:/ATLData/Documents/GitHub/GIS_utils/')
+                import GISops
+            except:
+                print 'GIS_utils.GISops not found!'
             GISops.join_csv2shp(self.streams_shp, self.node_num_attribute, os.path.join(self.outpath, 'temp.csv'), self.node_num_attribute, outfile, how='inner')
