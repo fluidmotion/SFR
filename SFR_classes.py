@@ -3315,7 +3315,7 @@ class SFRoutput:
                 if from_shp:
                     geom = mapping(shape(node['geometry']))
                 else:
-                    geom = CellProps[cellnum].geometry
+                    geom = CELLProps.allcells[cellnum].geometry
 
                 # shapefiles are incompatible with int64.
                 # but apparently they are compatible with float64 ARGH!
