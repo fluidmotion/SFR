@@ -3255,8 +3255,6 @@ class SFRoutput:
         else:
             from_shp = True
             print "making shapefile of SFR network using {}...".format(self.indat.CELLS_DISS)
-            knt = 0
-            nSFRcells = len(Mat1)
             input = collection(self.indat.CELLS_DISS, "r")
 
         schema = {'geometry': 'Polygon',
@@ -3278,6 +3276,8 @@ class SFRoutput:
                                  'length_in_cell': 'float'}}
 
         output = collection(self.indat.GISSHP, "w", "ESRI Shapefile", schema)
+        knt = 0
+        nSFRcells = len(Mat1)
         for node in input:
 
             # test whether cellnum is in list or shapefile row dictionary
