@@ -3269,7 +3269,13 @@ class SFRoutput:
                                  'outseg': 'int',
                                  'upseg': 'int',
                                  'sb_elev': 'float',
-                                 'modeltop': 'float'}}
+                                 'modeltop': 'float',
+                                 'bed_K': 'float',
+                                 'bed_roughness': 'float',
+                                 'bed_slope': 'float',
+                                 'bed_thickness': 'float',
+                                 'width_in_cell': 'float',
+                                 'length_in_cell': 'float'}}
 
         output = collection(self.indat.GISSHP, "w", "ESRI Shapefile", schema)
         for node in input:
