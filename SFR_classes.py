@@ -1,10 +1,17 @@
 __author__ = 'Fienen, Reeves, Leaf - USGS'
 
 import xml.etree.ElementTree as ET
-import arcpy
+
+# allows input class to be used with methods that don't require arcpy
+try:
+    import arcpy
+    import SFR_arcpy
+except:
+    arcpy = False
+    print "\nWarning! module arcpy not found!\n"
+
 import os
 import numpy as np
-import SFR_arcpy
 import time
 import datetime
 import discomb_utilities as disutil #  utility to read in a dis file
@@ -150,13 +157,14 @@ class SFRInput:
         self.calculated_DEM_elevs = False
         self.calculated_contour_elevs = False
 
-        # initialize the arcpy environment
-        #arcpy.env.workspace = os.getcwd()
-        arcpy.env.workspace = self.working_dir
-        arcpy.env.overwriteOutput = True
-        arcpy.env.qualifiedFieldNames = False
-        # Check out any necessary arcpy licenses
-        arcpy.CheckOutExtension("spatial")
+        if arcpy:
+            # initialize the arcpy environment
+            #arcpy.env.workspace = os.getcwd()
+            arcpy.env.workspace = self.working_dir
+            arcpy.env.overwriteOutput = True
+            arcpy.env.qualifiedFieldNames = False
+            # Check out any necessary arcpy licenses
+            arcpy.CheckOutExtension("spatial")
 
         # read in grid type
         try:
@@ -283,14 +291,15 @@ class SFRInput:
         except:
             self.GIS_utils_path = None
 
-        #read the Fcode-Fstring table and save it into a dictionary, Fstring
-        descrips = arcpy.SearchCursor(self.FTab)
-        self.Fstring = dict()
-        for description in descrips:
-            Fcodevalue = int(description.FCode)
-            if not Fcodevalue in self.Fstring:
-                self.Fstring[Fcodevalue]=description.Descriptio
-        del descrips
+        if arcpy:
+            #read the Fcode-Fstring table and save it into a dictionary, Fstring
+            descrips = arcpy.SearchCursor(self.FTab)
+            self.Fstring = dict()
+            for description in descrips:
+                Fcodevalue = int(description.FCode)
+                if not Fcodevalue in self.Fstring:
+                    self.Fstring[Fcodevalue]=description.Descriptio
+            del descrips
 
     def tf2flag(self, intxt):
         # converts text written in XML file to True or False flag
@@ -3117,9 +3126,9 @@ class SFRoutput:
             if self.indat.gridtype == 'structured':
                 indexing = '{0:d} {1:d} {2:d}'.format(Mat1['layer'][i], Mat1['row'][i], Mat1['column'][i])
             else:
-                indexing = '{0:d}'.format(Mat1['cellnum'][i])
+                indexing = '{0:.0f}'.format(Mat1[self.indat.node_attribute][i])
 
-            ofp.write('{} {3:d} {4:d} {5:e} {6:e} {7:e} {8:e} {9:s}\n'.format(
+            ofp.write('{0} {1:d} {2:d} {3:e} {4:e} {5:e} {6:e} {7:s}\n'.format(
                 indexing,
                 int(Mat1['segment'][i]),
                 int(Mat1['reach'][i]),
