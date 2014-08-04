@@ -3335,10 +3335,10 @@ class SFRoutput:
                                              'bed_thickness': Mat1.ix[(cellnum, uniquereach), 'bed_thickness'],
                                              'width_in_cell': Mat1.ix[(cellnum, uniquereach), 'width_in_cell'],
                                              'length_in_cell': Mat1.ix[(cellnum, uniquereach), 'length_in_cell']},
-                              'geometry': geom})
+                              'geometry': mapping(geom)})
 
         # copy over prj file
-        shutil.copyfile("{}.prj".format(self.intersect[:-4]), "{}.prj".format(self.indat.GISSHP[:-4]))
+        shutil.copyfile("{}.prj".format(self.indat.intersect[:-4]), "{}.prj".format(self.indat.GISSHP[:-4]))
 
 
 

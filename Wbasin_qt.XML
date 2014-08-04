@@ -28,7 +28,7 @@ Notes on SFR input:
     downstream segment is more than this distance away, the segment is treated as an outlet (outseg = 0).
     This helps prevent unwanted routing for segments that aren't outlets in NHD, but are outlets in the model.
     A few multiples of the grid spacing should work. -->
-    <distanceTol>5000</distanceTol>
+    <distanceTol>50000</distanceTol>
 	<!-- preproc:
     a factor within which start(x,y) and end(x,y) can be found -->
     <preproc>False</preproc>
