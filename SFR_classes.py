@@ -3255,8 +3255,6 @@ class SFRoutput:
         else:
             from_shp = True
             print "making shapefile of SFR network using {}...".format(self.indat.CELLS_DISS)
-            knt = 0
-            nSFRcells = len(Mat1)
             input = collection(self.indat.CELLS_DISS, "r")
 
         schema = {'geometry': 'Polygon',
@@ -3278,6 +3276,8 @@ class SFRoutput:
                                  'length_in_cell': 'float'}}
 
         output = collection(self.indat.GISSHP, "w", "ESRI Shapefile", schema)
+        knt = 0
+        nSFRcells = len(Mat1)
         for node in input:
 
             # test whether cellnum is in list or shapefile row dictionary
@@ -3335,10 +3335,10 @@ class SFRoutput:
                                              'bed_thickness': Mat1.ix[(cellnum, uniquereach), 'bed_thickness'],
                                              'width_in_cell': Mat1.ix[(cellnum, uniquereach), 'width_in_cell'],
                                              'length_in_cell': Mat1.ix[(cellnum, uniquereach), 'length_in_cell']},
-                              'geometry': geom})
+                              'geometry': mapping(geom)})
 
         # copy over prj file
-        shutil.copyfile("{}.prj".format(self.intersect[:-4]), "{}.prj".format(self.indat.GISSHP[:-4]))
+        shutil.copyfile("{}.prj".format(self.indat.intersect[:-4]), "{}.prj".format(self.indat.GISSHP[:-4]))
 
 
 
