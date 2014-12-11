@@ -2977,7 +2977,7 @@ class SFRoutput:
             from osgeo import ogr
             import pandas as pd
         except:
-            print "Need these modules for class buildSFRshapefile2: pandas\nfiona\nshapely\n"
+            print "Need these modules for class buildSFRshapefileOGR: pandas\osgeo\n"
             quit()
     
         print "reading {0} and {1} into pandas DataFrames...".format(self.indat.MAT1, self.indat.MAT2)
@@ -3001,7 +3001,7 @@ class SFRoutput:
             outds=dsDriver.CreateDataSource(self.indat.GISSHP)
         else:
             outds=dsDriver.Open(self.indat.GISSHP,True)
-        output=outds.CreateLayer('final_riv',options=['OVERWRITE=YES'])
+        output=outds.CreateLayer(os.path.splitext(self.indat.GISSHP)[0],options=['OVERWRITE=YES'])
     
         fieldDef=ogr.FieldDefn(self.indat.node_attribute,ogr.OFTInteger)
         output.CreateField(fieldDef)
