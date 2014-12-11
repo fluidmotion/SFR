@@ -2969,8 +2969,109 @@ class SFRoutput:
         # copy over prj file
         shutil.copyfile("{}.prj".format(self.indat.CELLS_DISS[:-4]), "{}.prj".format(self.indat.GISSHP[:-4]))
 
+    def buildSFRshapefileOGR(self):
+    
+        try:
+            # from fiona import collection
+            # from shapely.geometry import shape, mapping
+            from osgeo import ogr
+            import pandas as pd
+        except:
+            print "Need these modules for class buildSFRshapefile2: pandas\nfiona\nshapely\n"
+            quit()
+    
+        print "reading {0} and {1} into pandas DataFrames...".format(self.indat.MAT1, self.indat.MAT2)
+        Mat1 = pd.read_csv(self.indat.MAT1)
+    
+        # calculate column of cellnums for Mat1; index by cellnum
+        Mat1[self.indat.node_attribute] = Mat1.apply(lambda x: (x['row'] - 1) * self.indat.NCOL + x['column'], axis=1).astype('int32')
+        #Mat1[self.indat.node_attribute] = Mat1[self.indat.node_attribute]
+        Mat1 = Mat1.set_index([Mat1[self.indat.node_attribute], Mat1.index])
+        Mat2 = pd.read_csv(self.indat.MAT2)
+        Mat2.index = Mat2['segment']
+        Mat2upsegs = pd.Series(Mat2['segment'].values, index=Mat2['outseg']).to_dict()
+        print "making shapefile of SFR network using {}...".format(self.indat.CELLS_DISS)
+        print "writing {}...".format(self.indat.GISSHP)
+        knt = 0
+        nSFRcells = len(Mat1)
+        dsDriver=ogr.GetDriverByName('ESRI Shapefile')
+        inds=dsDriver.Open(self.indat.CELLS_DISS)
+        input=inds.GetLayer(0)
+        if not os.path.exists(self.indat.GISSHP):
+            outds=dsDriver.CreateDataSource(self.indat.GISSHP)
+        else:
+            outds=dsDriver.Open(self.indat.GISSHP,True)
+        output=outds.CreateLayer('final_riv',options=['OVERWRITE=YES'])
+    
+        fieldDef=ogr.FieldDefn(self.indat.node_attribute,ogr.OFTInteger)
+        output.CreateField(fieldDef)
+        fieldDef=ogr.FieldDefn('irow',ogr.OFTInteger)
+        output.CreateField(fieldDef)
+        fieldDef=ogr.FieldDefn('icol',ogr.OFTInteger)
+        output.CreateField(fieldDef)
+        fieldDef=ogr.FieldDefn('ilay',ogr.OFTInteger)
+        output.CreateField(fieldDef)
+        fieldDef=ogr.FieldDefn('segment',ogr.OFTInteger)
+        output.CreateField(fieldDef)
+        fieldDef=ogr.FieldDefn('reach',ogr.OFTInteger)
+        output.CreateField(fieldDef)
+        fieldDef=ogr.FieldDefn('outseg',ogr.OFTInteger)
+        output.CreateField(fieldDef)
+        fieldDef=ogr.FieldDefn('upseg',ogr.OFTInteger)
+        output.CreateField(fieldDef)
+        fieldDef=ogr.FieldDefn('sb_elev',ogr.OFTInteger)
+        output.CreateField(fieldDef)
+        fieldDef=ogr.FieldDefn('modeltop',ogr.OFTInteger)
+        output.CreateField(fieldDef)
+        id=[]
+        for i in input:
+            id.append(i.GetFID())
+    
+        for i in id:
+            cell=input.GetFeature(i)
+            cellnum = cell.GetField(self.indat.node_attribute)
+            if cellnum == 381937:
+                j=2
+            # handle cells that were subsequently deleted after creation of input shapefile
+            try:
+                Mat1.ix[cellnum]
+    
+            except KeyError:
+                continue
+    
+            print "\r{:d}%".format(100 * knt / nSFRcells),
+            # iterate over multi-index (allows for multiple reaches in one cell)
+            for uniquereach in Mat1.ix[cellnum].index:
+                knt += 1
+                segment = int(Mat1.ix[(cellnum, uniquereach), 'segment'])
+                outseg = int(Mat2.ix[segment, 'outseg'])
+                # handle headwaters (no upseg)
+                try:
+                    Mat2upsegs[segment]
+                except KeyError:
+                    Mat2upsegs[segment] = 0
+    
+                # shapefiles are incompatible with int64.
+                # but apparently they are compatible with float64 ARGH!
+                newfeat=ogr.Feature(output.GetLayerDefn())
+                newfeat.SetGeometry(cell.GetGeometryRef())
+                newfeat.SetField(self.indat.node_attribute,Mat1.ix[(cellnum, uniquereach), self.indat.node_attribute])
+                newfeat.SetField('irow',Mat1.ix[(cellnum, uniquereach), 'row'].astype('int32'))
+                newfeat.SetField('icol',Mat1.ix[(cellnum, uniquereach), 'column'].astype('int32'))
+                newfeat.SetField('ilay',Mat1.ix[(cellnum, uniquereach), 'layer'].astype('int32'))
+                newfeat.SetField('segment',int(segment))
+                newfeat.SetField('reach',Mat1.ix[(cellnum, uniquereach), 'reach'].astype('int32'))
+                newfeat.SetField('outseg',outseg)
+                newfeat.SetField('upseg',np.int32(Mat2upsegs[segment]))
+                newfeat.SetField('sb_elev',Mat1.ix[(cellnum, uniquereach), 'top_streambed'])
+                newfeat.SetField('modeltop',99.99)
+                output.CreateFeature(newfeat)
+        inds=None
+        output=None
+        # copy over prj file
+        shutil.copyfile("{}.prj".format(self.indat.CELLS_DISS[:-4]), "{}.prj".format(self.indat.GISSHP[:-4]))
 
-
+        
 def widthcorrelation(arbolate):
     #estimate widths, equation from Feinstein and others (Lake
     #Michigan Basin model) width=0.1193*(x^0.5032)
