@@ -2997,11 +2997,13 @@ class SFRoutput:
         dsDriver=ogr.GetDriverByName('ESRI Shapefile')
         inds=dsDriver.Open(self.indat.CELLS_DISS)
         input=inds.GetLayer(0)
-        if not os.path.exists(self.indat.GISSHP):
-            outds=dsDriver.CreateDataSource(self.indat.GISSHP)
-        else:
-            outds=dsDriver.Open(self.indat.GISSHP,True)
-        output=outds.CreateLayer(os.path.splitext(self.indat.GISSHP)[0],options=['OVERWRITE=YES'])
+        if os.path.exists(self.indat.GISSHP):
+            os.remove(self.indat.GISSHP)
+        outds=dsDriver.CreateDataSource(self.indat.GISSHP)
+        output=outds.CreateLayer(os.path.splitext(os.path.basename(self.indat.GISSHP))[0],options=['OVERWRITE=YES'])
+        # else:
+            # outds=dsDriver.Open(self.indat.GISSHP,True)
+            # output=outds.GetLayer(0)
     
         fieldDef=ogr.FieldDefn(self.indat.node_attribute,ogr.OFTInteger)
         output.CreateField(fieldDef)
