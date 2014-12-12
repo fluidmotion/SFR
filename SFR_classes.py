@@ -3056,7 +3056,14 @@ class SFRoutput:
                 # shapefiles are incompatible with int64.
                 # but apparently they are compatible with float64 ARGH!
                 newfeat=ogr.Feature(output.GetLayerDefn())
-                newfeat.SetGeometry(cell.GetGeometryRef())
+                cent=cell.GetGeometryRef().Centroid()
+                # print cent.GetX(),cent.GetY()
+                # quit()
+                pt=None
+                pt=ogr.Geometry(ogr.wkbPoint)
+                pt.AddPoint(cent.GetX(),cent.GetY(),float(Mat1.ix[(cellnum, uniquereach), 'top_streambed']))
+                # newfeat.SetGeometry(cell.GetGeometryRef())
+                newfeat.SetGeometry(pt)
                 newfeat.SetField(self.indat.node_attribute,Mat1.ix[(cellnum, uniquereach), self.indat.node_attribute])
                 newfeat.SetField('irow',Mat1.ix[(cellnum, uniquereach), 'row'].astype('int32'))
                 newfeat.SetField('icol',Mat1.ix[(cellnum, uniquereach), 'column'].astype('int32'))
