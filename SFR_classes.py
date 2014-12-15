@@ -2998,12 +2998,9 @@ class SFRoutput:
         inds=dsDriver.Open(self.indat.CELLS_DISS)
         input=inds.GetLayer(0)
         if os.path.exists(self.indat.GISSHP):
-            os.remove(self.indat.GISSHP)
+            dsDriver.DeleteDataSource(self.indat.GISSHP)
         outds=dsDriver.CreateDataSource(self.indat.GISSHP)
-        output=outds.CreateLayer(os.path.splitext(os.path.basename(self.indat.GISSHP))[0],options=['OVERWRITE=YES'])
-        # else:
-            # outds=dsDriver.Open(self.indat.GISSHP,True)
-            # output=outds.GetLayer(0)
+        output=outds.CreateLayer(os.path.splitext(os.path.basename(self.indat.GISSHP))[0],geom_type=ogr.wkbPoint,options=['OVERWRITE=YES'])
     
         fieldDef=ogr.FieldDefn(self.indat.node_attribute,ogr.OFTInteger)
         output.CreateField(fieldDef)
@@ -3028,7 +3025,7 @@ class SFRoutput:
         id=[]
         for i in input:
             id.append(i.GetFID())
-    
+
         for i in id:
             cell=input.GetFeature(i)
             cellnum = cell.GetField(self.indat.node_attribute)
@@ -3057,11 +3054,11 @@ class SFRoutput:
                 # but apparently they are compatible with float64 ARGH!
                 newfeat=ogr.Feature(output.GetLayerDefn())
                 cent=cell.GetGeometryRef().Centroid()
-                # print cent.GetX(),cent.GetY()
-                # quit()
                 pt=None
                 pt=ogr.Geometry(ogr.wkbPoint)
                 pt.AddPoint(cent.GetX(),cent.GetY(),float(Mat1.ix[(cellnum, uniquereach), 'top_streambed']))
+                # pt.AddPoint(float(cent.GetX()),float(cent.GetY()))
+                # pt.AddPoint(1000.00,10000.00)
                 # newfeat.SetGeometry(cell.GetGeometryRef())
                 newfeat.SetGeometry(pt)
                 newfeat.SetField(self.indat.node_attribute,Mat1.ix[(cellnum, uniquereach), self.indat.node_attribute])
@@ -3075,6 +3072,7 @@ class SFRoutput:
                 newfeat.SetField('sb_elev',Mat1.ix[(cellnum, uniquereach), 'top_streambed'])
                 newfeat.SetField('modeltop',99.99)
                 output.CreateFeature(newfeat)
+
         inds=None
         output=None
         # copy over prj file
